@@ -24,6 +24,26 @@ struct Cell {
   int y;
 };
 
+void initialize_environment(struct Cell environment[ROWS * COLUMNS]) {
+  for (int i = 0; i<ROWS; i++) {
+    for (int j = 0; j < COLUMNS; j++) {
+      environment[j + COLUMNS*i] = (struct Cell){ WATER_TYPE, 0, j, i};
+    }
+  }
+}
+
+void draw_grid(SDL_Surface* surface, Uint32 color) {
+ for (int i = 0; i < COLUMNS; i++) {
+    SDL_Rect column = (SDL_Rect) { i*CELL_SIZE, 0, LINE_WIDTH, SCREEN_HEIGHT };
+    SDL_FillRect(surface, &column, color);
+  }
+
+  for (int j = 0; j < ROWS; j++) {
+    SDL_Rect row = (SDL_Rect) { 0, j*CELL_SIZE, SCREEN_WIDTH, LINE_WIDTH };
+    SDL_FillRect(surface, &row, color);
+  }
+}
+
 void draw_cell(SDL_Surface* surface, struct Cell cell) {
   int pixel_x = cell.x * CELL_SIZE;
   int pixel_y = cell.y * CELL_SIZE;
@@ -40,26 +60,6 @@ void draw_cell(SDL_Surface* surface, struct Cell cell) {
   // Solid blocks
   if (cell.type == SOLID_TYPE) {
     SDL_FillRect(surface, &cell_rect, COLOR_WHITE);
-  }
-}
-
-void draw_grid(SDL_Surface* surface, Uint32 color) {
- for (int i = 0; i < COLUMNS; i++) {
-    SDL_Rect column = (SDL_Rect) { i*CELL_SIZE, 0, LINE_WIDTH, SCREEN_HEIGHT };
-    SDL_FillRect(surface, &column, color);
-  }
-
-  for (int j = 0; j < ROWS; j++) {
-    SDL_Rect row = (SDL_Rect) { 0, j*CELL_SIZE, SCREEN_WIDTH, LINE_WIDTH };
-    SDL_FillRect(surface, &row, color);
-  }
-}
-
-void initialize_environment(struct Cell environment[ROWS * COLUMNS]) {
-  for (int i = 0; i<ROWS; i++) {
-    for (int j = 0; j < COLUMNS; j++) {
-      environment[COLUMNS * i + j] = (struct Cell){ WATER_TYPE, 0, j, i};
-    }
   }
 }
 
@@ -85,7 +85,7 @@ int main() {
   int simulation_running = 1;
   SDL_Event event;
   int current_type = SOLID_TYPE;
-  
+  int delete_mode = 0;
   while (simulation_running) {
     while(SDL_PollEvent(&event)) {
       if (event.type == SDL_QUIT) {
@@ -93,19 +93,27 @@ int main() {
       }
       if (event.type == SDL_MOUSEMOTION) {
         if (event.motion.state != 0) {
-          int cell_j = event.motion.x / CELL_SIZE;
-          int cell_i = event.motion.y / CELL_SIZE;
-          struct Cell cell = {current_type, 0, cell_j, cell_i};
+          int cell_x = event.motion.x / CELL_SIZE;
+          int cell_y = event.motion.y / CELL_SIZE;
+          int fill_level = delete_mode ? 0 : 1;
           
-          enviroment[cell_i * COLUMNS + cell_j] = cell;
+          if (delete_mode != 0) current_type = WATER_TYPE;
+          struct Cell cell = {current_type, fill_level, cell_x, cell_y};
+          
+          enviroment[cell_x + COLUMNS * cell_y] = cell;
         }
       }
       if (event.type == SDL_KEYDOWN) {
         if (event.key.keysym.sym == SDLK_SPACE) {
           current_type = !current_type;
         }
+        if (event.key.keysym.sym == SDLK_BACKSPACE) {
+          delete_mode = !delete_mode;
+        }
       }
     }
+
+    // Perform simulation steps
     
     draw_environment(surface, enviroment);
     draw_grid(surface, gray);
