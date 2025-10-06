@@ -89,7 +89,6 @@ void draw_environment(SDL_Surface *surface, struct Cell environment[ROWS * COLUM
 
 void simulation_step(struct Cell environment[ROWS * COLUMNS])
 {
-  struct Cell environment_copy[ROWS * COLUMNS];
   struct CellFlow flows[ROWS * COLUMNS];
   for (int i = 0; i < ROWS * COLUMNS; i++)
   {
