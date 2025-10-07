@@ -24,14 +24,6 @@ struct Cell
   int y;
 };
 
-struct CellFlow
-{
-  double flow_left;
-  double flow_right;
-  double flow_up;
-  double flow_down;
-};
-
 void initialize_environment(struct Cell environment[ROWS * COLUMNS])
 {
   for (int i = 0; i < ROWS; i++)
@@ -89,39 +81,56 @@ void draw_environment(SDL_Surface *surface, struct Cell environment[ROWS * COLUM
 
 void simulation_step(struct Cell environment[ROWS * COLUMNS])
 {
-  struct CellFlow flows[ROWS * COLUMNS];
+  struct Cell environment_next[ROWS * COLUMNS];
   for (int i = 0; i < ROWS * COLUMNS; i++)
-  {
-    flows[i] = (struct CellFlow){0, 0, 0, 0};
-  }
+    environment_next[i] = environment[i];
+
   // Water should drop to the cell below
   for (int i = 0; i < ROWS; i++)
   {
     for (int j = 0; j < COLUMNS; j++)
     {
-      struct Cell current_cell = environment[j + COLUMNS * i];
-      if (current_cell.type == WATER_TYPE && i < ROWS - 1)
+      // Rule 1: Water should drop down
+      struct Cell source_cell = environment[j + COLUMNS * i];
+      if (source_cell.type == WATER_TYPE && i < ROWS - 1)
       {
-        if (environment[j + COLUMNS * i].fill_level != 0)
+        struct Cell destination_cell = environment[j + COLUMNS * (i + 1)];
+        if (destination_cell.fill_level < source_cell.fill_level)
         {
-          flows[j + COLUMNS * i].flow_down = flows[j + COLUMNS * i].flow_down = 1;
+          environment_next[j + COLUMNS * i].fill_level = 0;
+          environment_next[j + COLUMNS * (i + 1)].fill_level += source_cell.fill_level;
+        }
+      }
+      // Rule 2: Water should spread to the sides
+      if (source_cell.type == WATER_TYPE && j > 0)
+      {
+        int below_full_or_solid = 0;
+        if (i > ROWS - 1 || (environment[j + COLUMNS * (i + 1)].fill_level >= 1) || (environment[j + COLUMNS * (i + 1)].type == SOLID_TYPE)) below_full_or_solid = 1;
+        if (below_full_or_solid && source_cell.type == WATER_TYPE && j > 0)
+        {
+          // Spread left
+          struct Cell destination_cell = environment[(j - 1) + COLUMNS * i];
+          if (destination_cell.fill_level < source_cell.fill_level)
+          {
+            double delta_fill = source_cell.fill_level - destination_cell.fill_level;
+            environment_next[j + COLUMNS * i].fill_level -= delta_fill / 3;
+            environment_next[(j - 1) + COLUMNS * i].fill_level += delta_fill / 3;
+          }
+          // Spread right
+          destination_cell = environment[(j + 1) + COLUMNS * i];
+          if (destination_cell.fill_level < source_cell.fill_level)
+          {
+            double delta_fill = source_cell.fill_level - destination_cell.fill_level;
+            environment_next[j + COLUMNS * i].fill_level -= delta_fill / 3;
+            environment_next[(j + 1) + COLUMNS * i].fill_level += delta_fill / 3;
+          }
         }
       }
     }
   }
 
-  for (int i = 0; i < ROWS; i++)
-  {
-    for (int j = 0; j < COLUMNS; j++)
-    {
-      if (i > 0)
-      {
-        struct CellFlow cell_above_flow = flows[j + COLUMNS * (i - 1)];
-        environment[j+COLUMNS*i].fill_level += cell_above_flow.flow_down;
-        environment[j+COLUMNS*(i-1)].fill_level -= cell_above_flow.flow_down;
-      }
-    }
-  }
+  for (int i = 0; i < ROWS * COLUMNS; i++)
+    environment[i] = environment_next[i];
 }
 
 int main()
