@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <SDL2/SDL.h>
+#include <stdexcept>
 #include <SDL2/SDL_video.h>
 
 #define SCREEN_WIDTH 900
@@ -59,7 +60,7 @@ void draw_cell(SDL_Surface *surface, struct Cell cell)
 
   if (cell.type == WATER_TYPE)
   {
-    int water_height = cell.fill_level * CELL_SIZE;
+    int water_height = cell.fill_level > 1 ? CELL_SIZE : cell.fill_level * CELL_SIZE;
     int empty_height = CELL_SIZE - water_height;
     SDL_Rect water_rect = (SDL_Rect){pixel_x, pixel_y + empty_height, CELL_SIZE, water_height};
     SDL_FillRect(surface, &water_rect, COLOR_BLUE);
@@ -79,12 +80,11 @@ void draw_environment(SDL_Surface *surface, struct Cell environment[ROWS * COLUM
   }
 }
 
-void simulation_step(struct Cell environment[ROWS * COLUMNS])
+void simulation_phase_rule1(struct Cell environment[ROWS * COLUMNS])
 {
   struct Cell environment_next[ROWS * COLUMNS];
   for (int i = 0; i < ROWS * COLUMNS; i++)
     environment_next[i] = environment[i];
-
   // Water should drop to the cell below
   for (int i = 0; i < ROWS; i++)
   {
@@ -97,16 +97,40 @@ void simulation_step(struct Cell environment[ROWS * COLUMNS])
         struct Cell destination_cell = environment[j + COLUMNS * (i + 1)];
         if (destination_cell.fill_level < source_cell.fill_level)
         {
-          environment_next[j + COLUMNS * i].fill_level = 0;
-          environment_next[j + COLUMNS * (i + 1)].fill_level += source_cell.fill_level;
+          double free_destination_space = 1 - destination_cell.fill_level;
+          if (free_destination_space >= source_cell.fill_level)
+          {
+            environment_next[j + COLUMNS * i].fill_level = 0;
+            environment_next[j + COLUMNS * (i + 1)].fill_level += source_cell.fill_level;
+          }
+          else
+          {
+            environment_next[j + COLUMNS * i].fill_level -= free_destination_space;
+            environment_next[j + COLUMNS * (i + 1)].fill_level = 1;
+          }
         }
       }
+    }
+  }
+  for (int i = 0; i < ROWS * COLUMNS; i++)
+    environment[i] = environment_next[i];
+}
+
+void simulation_phase_rule2(struct Cell environment[ROWS * COLUMNS])
+{
+  struct Cell environment_next[ROWS * COLUMNS];
+  for (int i = 0; i < ROWS * COLUMNS; i++)
+    environment_next[i] = environment[i];
+  // Rule 2: Water should spread to the sides
+  for (int i = 0; i < ROWS; i++)
+  {
+    for (int j = 0; j < COLUMNS; j++)
+    {
+      struct Cell source_cell = environment[j + COLUMNS * i];
       // Rule 2: Water should spread to the sides
-      if (source_cell.type == WATER_TYPE && j > 0)
+      if (i+1 == ROWS || environment[j+COLUMNS*(i+1)].fill_level >= environment[j+COLUMNS * i].fill_level || environment[j+COLUMNS*(i+1)].type == SOLID_TYPE)
       {
-        int below_full_or_solid = 0;
-        if (i > ROWS - 1 || (environment[j + COLUMNS * (i + 1)].fill_level >= 1) || (environment[j + COLUMNS * (i + 1)].type == SOLID_TYPE)) below_full_or_solid = 1;
-        if (below_full_or_solid && source_cell.type == WATER_TYPE && j > 0)
+        if (source_cell.type == WATER_TYPE && j > 0)
         {
           // Spread left
           struct Cell destination_cell = environment[(j - 1) + COLUMNS * i];
@@ -128,9 +152,69 @@ void simulation_step(struct Cell environment[ROWS * COLUMNS])
       }
     }
   }
-
   for (int i = 0; i < ROWS * COLUMNS; i++)
     environment[i] = environment_next[i];
+}
+
+void simulation_phase_rule3(struct Cell environment[ROWS * COLUMNS])
+{
+  struct Cell environment_next[ROWS * COLUMNS];
+  for (int i = 0; i < ROWS * COLUMNS; i++)
+    environment_next[i] = environment[i];
+  // Rule 3: Pressurized cells can release fluid upwards
+  for (int i = 0; i < ROWS; i++)
+  {
+    for (int j = 0; j < COLUMNS; j++)
+    {
+      // Check if source cell fill level is bigger than 1
+      // Check if there is a water cell above into which fluid can be transferred
+      struct Cell source_cell = environment[j + COLUMNS * i];
+      if (
+        source_cell.type == WATER_TYPE &&
+        source_cell.fill_level > 1 &&
+        i > 0 &&
+        environment[j+COLUMNS*(i-1)].type == WATER_TYPE &&
+       source_cell.fill_level > environment[j+COLUMNS*(i-1)].fill_level
+      )
+      {
+        struct Cell destination_cell = environment[j + COLUMNS * (i - 1)];
+        // Cell is pressurized and water can flow up
+        double transfer_fill = source_cell.fill_level - 1;
+        environment_next[j + COLUMNS * i].fill_level -= transfer_fill;
+        environment_next[j + COLUMNS * (i - 1)].fill_level += transfer_fill;
+      }
+    }
+  }
+
+   for (int i = 0; i < ROWS * COLUMNS; i++)
+    environment[i] = environment_next[i];
+}
+
+void simulation_step(struct Cell environment[ROWS * COLUMNS])
+{
+  try
+  {
+    simulation_phase_rule1(environment);
+  } catch (...)
+  {
+    printf("Error in simulation_phase_rule1\n");
+  }
+  try
+  {
+    simulation_phase_rule2(environment);
+  }
+  catch(...)
+  {
+    printf("Error in simulation_phase_rule2\n");
+  }
+  try
+  {
+    simulation_phase_rule3(environment);
+  }
+  catch(...)
+  {
+    printf("Error in simulation_phase_rule3\n");
+  }
 }
 
 int main()
@@ -165,11 +249,20 @@ int main()
         {
           int cell_x = event.motion.x / CELL_SIZE;
           int cell_y = event.motion.y / CELL_SIZE;
-          int fill_level = delete_mode ? 0 : 1;
+          int fill_level;
 
+          struct Cell cell;
           if (delete_mode != 0)
+          {
             current_type = WATER_TYPE;
-          struct Cell cell = {current_type, fill_level, cell_x, cell_y};
+            fill_level = 0;
+            cell = (struct Cell){current_type, (double)fill_level, cell_x, cell_y};
+          }
+          else
+          {
+            fill_level = environment[cell_x + COLUMNS * cell_y].fill_level + 1;
+            cell = (struct Cell){current_type, (double)fill_level, cell_x, cell_y};
+          }
 
           environment[cell_x + COLUMNS * cell_y] = cell;
         }
@@ -187,12 +280,16 @@ int main()
       }
     }
 
-    // Perform simulation steps
-    simulation_step(environment);
+    try {
+      // Perform simulation steps
+      simulation_step(environment);
+      draw_environment(surface, environment);
+      draw_grid(surface);
+    } catch (...) {
+      printf("Error in simulation step\n");
+    }
 
-    draw_environment(surface, environment);
-    draw_grid(surface);
-    SDL_Delay(16); // Roughly 60 FPS
+    SDL_Delay(50); // Roughly 60 FPS
     SDL_UpdateWindowSurface(window);
   }
 
